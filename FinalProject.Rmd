@@ -17,6 +17,8 @@ library(mda)
 library(e1071)
 library(VGAM)
 library(kernlab)
+library(randomForest)
+suppressMessages(library(leaps))
 set.seed(1)
 ```
 
@@ -44,7 +46,7 @@ modeScore <- function(result, ref){ #result n x 3, ref n x 1
   generalScore = generalScore / nrow(ref)
 }
 ```
-### 2. Data Cleaning, 
+## 2. Data Cleaning, 
 ```{R warning = F,message= F}
 setwd("D:/onedrive/private/Study/CalPoly/courses/GSB524MachineLearning/assignments/FinalProject/")
 data <- data.frame(read_csv("SpotifyFeatures.csv"))
@@ -58,7 +60,7 @@ mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime", mostPopul
 mostPopularByArtist$genre[mostPopularByArtist$genre == "Hip-Hop"] <- "Rap"
 ```
 
-### 2. Explore Plot, D
+## 3. Explore Plot, D
 ```{R}
 
 ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
@@ -68,11 +70,49 @@ ggplot(mostPopularByArtist[mostPopularByArtist$genre %in% c("Pop","Movie","Class
 
 ```
 
-### 4. Known Model 1, M
 
-### 5. Known Model 2, M
 
-### 5. New Model KSVM, M 
+## 4. Forward Regression model exploratory
+Subset
+```{r}
+sample_data <- data[sample(1:nrow(data), 5000, replace=FALSE),]
+sample_data<-na.omit(sample_data)
+sample_data$genre<-factor(sample_data$genre)
+nrow(sample_data)
+```
+
+```{r}
+set.seed(1)
+## 75% of the sample size
+smp_size <- floor(0.75 * nrow(sample_data))
+## set the seed to make your partition reproducible
+train_ind <- sample(seq_len(nrow(sample_data)), size = smp_size)
+train <- sample_data[train_ind, ]
+test <- sample_data[-train_ind, ]
+#forward regression
+regfit.fwd <- regsubsets(genre~ ., data=train, nvmax=4, force.in=NULL,
+                         method = "forward")
+summary(regfit.fwd)
+```
+
+
+
+### 4.1 Random Forest Classifier 
+```{r}
+sd.rf<-randomForest(genre~., data=train, importance=TRUE)
+importance(sd.rf, type=1)
+importance(sd.rf, type=2)
+```
+
+
+```{r}
+```
+
+## 5. Known Model 1, M
+
+## 6. Known Model 2, M
+
+## 7. New Model KSVM, M 
 ```{R}
 trainVar <- c("genre","acousticness",
                "danceability","duration_ms","energy",
