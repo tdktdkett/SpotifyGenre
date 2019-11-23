@@ -24,20 +24,15 @@ set.seed(1)
 
 ### 1. Score Functions, D
 ``` {R} 
-modeScore <- function(result, ref){ #result n x 3, ref n x 1
+modelScore <- function(result, ref){ #result n x 3, ref n x 1
   generalScore <- 0
-  genreScore <- hash()
-  
   for(i in 1:nrow(ref)) {
     if (result[i,1] == ref[i,]){
       score <- 100
-      genreScore[ref[i,]] <- genreScore[ref[i,]] + 1
     } else if (result[i,2] == ref[i,]) {
       score <- 100
-      genreScore[ref[i,]] <- genreScore[ref[i,]] + 1
     }else if (result[i,3] == ref[i,]) {
       score <- 100
-      genreScore[ref[i,]] <- genreScore[ref[i,]] + 1
     }else {
       score <- 0
     }
@@ -55,7 +50,7 @@ colnames(data)
 mostPopularByArtist <- data #%>% group_by(artist_name) %>% top_n(1, popularity) %>% data.frame() 
 #mostPopularByArtist <- mostPopularByArtist[mostPopularByArtist$popularity > 30, ]
 # 1.2 exclude a few 
-mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime", mostPopularByArtist$genre),]
+mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime|Soundtrack", mostPopularByArtist$genre),]
 # 1.3 merge rap & hip-hop
 mostPopularByArtist$genre[mostPopularByArtist$genre == "Hip-Hop"] <- "Rap"
 data2<-mostPopularByArtist %>%
@@ -69,7 +64,11 @@ data2<-mostPopularByArtist %>%
 ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=energy, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=tempo, colour=genre)) + geom_density()
-ggplot(mostPopularByArtist[mostPopularByArtist$genre %in% c("Pop","Movie","Classical"),], aes(x=loudness, colour=genre)) + geom_density()
+ggplot(mostPopularByArtist, aes(x=speechiness, colour=genre)) + geom_density()
+ggplot(mostPopularByArtist, aes(x=log(instrumentalness), colour=genre)) + geom_density()
+ggplot(mostPopularByArtist, aes(x=acousticness, colour=genre)) + geom_density()
+ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
+#ggplot(mostPopularByArtist[mostPopularByArtist$genre %in% c("Pop","Movie","Classical"),], aes(x=loudness, colour=genre)) + geom_density()
 
 ```
 
@@ -123,9 +122,9 @@ trainVar <- c("genre","acousticness",
                "loudness","speechiness",
                "tempo","valence")
 
-trainSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 10000, replace=FALSE),]
-tstSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 1000, replace=FALSE), ]
-#fit <- ksvm(genre ~ ., data = trainSample[,trainVar])
+trainSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 20000, replace=FALSE),]
+tstSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 2000, replace=FALSE), ]
+fit <- ksvm(genre ~ ., data = trainSample[,trainVar])
 vote <- predict(fit, tstSample[,trainVar], type="votes")
 
 predictKSVM <- data.table()
@@ -137,6 +136,6 @@ for(i in 1:nrow(tstSample)){
 }
 colnames(predictKSVM)[1:3] <- c("Genre 1", "Genre 2", "Genre 3")
 resultKSVM <- cbind(predictKSVM, tstSample)
-scoreKSVM <- modeScore(predictKSVM, data.table(tstSample[,1]))
+scoreKSVM <- modelScore(predictKSVM, data.table(tstSample[,1]))
 ```
 
