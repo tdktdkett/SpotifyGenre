@@ -14,10 +14,10 @@ library(tidyverse)
 library(ggplot2)
 library(caret)
 library(mda)
-library(e1071)
 library(VGAM)
 library(kernlab)
 library(randomForest)
+library(tree)
 suppressMessages(library(leaps))
 set.seed(1)
 ```
@@ -41,18 +41,20 @@ modelScore <- function(result, ref){ #result n x 3, ref n x 1
   generalScore = generalScore / nrow(ref)
 }
 ```
+
 ## 2. Data Cleaning, 
 ```{R warning = F,message= F}
-setwd("D:/onedrive/private/Study/CalPoly/courses/GSB524MachineLearning/assignments/FinalProject/")
+setwd("~/Desktop/SpotifyGenre/")
 data <- data.frame(read_csv("SpotifyFeatures.csv"))
 colnames(data)
 # 1.1 most popular
 mostPopularByArtist <- data #%>% group_by(artist_name) %>% top_n(1, popularity) %>% data.frame() 
 #mostPopularByArtist <- mostPopularByArtist[mostPopularByArtist$popularity > 30, ]
 # 1.2 exclude a few 
-mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime|Soundtrack", mostPopularByArtist$genre),]
+mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime|Soundtrack|Movie|Comedy", mostPopularByArtist$genre),]
 # 1.3 merge rap & hip-hop
 mostPopularByArtist$genre[mostPopularByArtist$genre == "Hip-Hop"] <- "Rap"
+mostPopularByArtist$genre[mostPopularByArtist$genre == "Reggaeton"] <- "Reggae"
 data2<-mostPopularByArtist %>%
   select(-c(track_id, time_signature, track_name, artist_name, mode, key, popularity))
 
@@ -72,47 +74,138 @@ ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
 
 ```
 
-
-
-## 4. Forward Regression model exploratory
-Subset
 ```{r}
-sample_data <- data2[sample(1:nrow(data2), 5000, replace=FALSE),]
-sample_data<-na.omit(sample_data)
-sample_data$genre<-factor(sample_data$genre)
-nrow(sample_data)
+library(MASS)
+library(class)
 ```
 
+Subset the data for a sample of 5000
+```{r}
+sample_data <- data2[sample(1:nrow(data2), 10000, replace=FALSE),]
+sample_data<-na.omit(sample_data)
+sample_data$genre<-factor(sample_data$genre)
+```
+
+Split the data into testing and training sets
 ```{r}
 set.seed(1)
+
 ## 75% of the sample size
 smp_size <- floor(0.75 * nrow(sample_data))
-## set the seed to make your partition reproducible
+
 train_ind <- sample(seq_len(nrow(sample_data)), size = smp_size)
 train <- sample_data[train_ind, ]
 test <- sample_data[-train_ind, ]
-#forward regression
-regfit.fwd <- regsubsets(genre~ ., data=train, nvmax=4, force.in=NULL,
-                         method = "forward")
-summary(regfit.fwd)
 ```
 
 
 
 ### 4.1 Random Forest Classifier 
 ```{r}
-sd.rf<-randomForest(genre~., data=train, importance=TRUE)
-importance(sd.rf, type=1)
-importance(sd.rf, type=2)
+sd.rf<-randomForest(genre~., data=train, mtry=10, importance=TRUE)
+importance(sd.rf, type = 1)
 ```
-
+Based on the Random Forest Classifier, we see that the variables that stand out as being the most important for classification accurate are speechiness, instrumentalness, danceability, and acousticness.
 
 ```{r}
+sd.rf
 ```
 
-## 5. kNN, M
+```{r}
+rf_pred<-predict(sd.rf, newdata = test)
+plot(rf_pred, test$genre)
+```
+```{r}
+mean(rf_pred==test$genre)*100
+```
+```{r}
+rf_error<-list()
+ntrees<-list()
+rf_models<-list()
 
-## 6. Known Model 2, M
+for (i in 1:10) {
+  ntrees[[i]]<-i
+  rf_models[[i]]<-sd.rf<-randomForest(genre~., data=train, mtry=10, ntree=i, importance=TRUE)
+  rf_pred<-predict(rf_models[[i]], newdata = test)
+  rf_error[[i]]<-mean(rf_pred==test$genre)*100
+}
+```
+
+```{r}
+plot(ntrees, rf_error)
+```
+
+
+# Decision Tree
+```{r}
+genre_tree<-tree(genre~speechiness+instrumentalness+danceability+acousticness, data=train)
+
+summary(genre_tree)
+```
+```{r}
+tree_pred<-predict(genre_tree, test, type="class")
+table(tree_pred, test$genre)
+
+mean(tree_pred == test$genre)
+```
+```{r}
+cv_genre<-cv.tree(genre_tree, FUN=prune.misclass)
+names(cv_genre)
+cv_genre
+```
+```{r}
+#par(mfrow<=c(1,2))
+plot(cv_genre$size, cv_genre$dev, type="b")
+plot(cv_genre$k, cv_genre$dev, type="b")
+```
+```{r}
+prune_genre<-prune.misclass(genre_tree, best=105)
+plot(prune_genre)
+text(prune_genre, pretty=0)
+```
+```{r}
+genre_pred<-predict(prune_genre, test, type="class")
+#table(genre_pred, test$genre)
+
+mean(genre_pred == test$genre)
+```
+
+
+#LDA
+```{r}
+lda_model <- lda(genre ~ acousticness+danceability+speechiness+instrumentalness, data = train)
+```
+
+```{r}
+pred_lda <- predict(lda_model, test, type="response")
+
+mean(pred_lda$class != test$genre)
+```
+
+
+## 5. kNN, M
+```{r}
+train_X2 = cbind(train$acousticness, train$danceability, train$speechiness, train$instrumentalness)
+
+test_X2 = cbind(test$acousticness, test$danceability, test$speechiness, test$instrumentalness)
+train_Y2 = cbind(train$genre)
+```
+
+```{r}
+knn_error<-list()
+k_values<-list()
+knn_models<-list()
+
+for (i in 1:100) {
+  k_values[[i]]<-i
+  knn_models[[i]]<-knn(train_X2, test_X2, train_Y2, k=i)
+  tab<-table(knn_models[[i]], test$genre)
+  knn_error[[i]]<-round((sum(tab[1,2], tab[2,1])/dim(test)[1])*100, 10)
+}
+
+plot(k_values, knn_error, type="b")
+```
+
 
 ## 7. New Model KSVM, M 
 ```{R}
