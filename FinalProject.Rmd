@@ -4,25 +4,24 @@ author: "Dikai Tang"
 date: "11/5/2019"
 output: html_document
 ---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Introduction
+This report documents the exploration and implementation of various classification models on a Spotify dataset. The dataset includes several metrics derived from audio files of songs as well as qualitative information such as the artist's name and the track name. From this report, we wanted to optimize classification methods in order to best predict the genre of a song simply based on the metrics derived from the audio files themselves.
 
-### 0, misc
-```{R warning = False, message = F, error = F}
-library(DT)
-library(rvest)
-library(data.table)
-library(tidyverse)
-library(ggplot2)
-library(caret)
-library(mda)
-library(e1071)
-library(VGAM)
+### 0 Dependencies
+```{R}
+suppressMessages(suppressWarnings(library(tidyverse)))
+library(tree)
 library(kernlab)
-library(randomForest)
+suppressWarnings(library(data.table))
 suppressMessages(library(leaps))
-set.seed(1)
 ```
 
-### 1. Score Functions, D
+
+
+### 1. Score Functions
 ``` {R} 
 modelScore <- function(result, ref){ #result n x 3, ref n x 1
   generalScore <- 0
@@ -41,24 +40,26 @@ modelScore <- function(result, ref){ #result n x 3, ref n x 1
   generalScore = generalScore / nrow(ref)
 }
 ```
-## 2. Data Cleaning, 
+
+## 2. Data Cleaning
 ```{R warning = F,message= F}
-setwd("D:/onedrive/private/Study/CalPoly/courses/GSB524MachineLearning/assignments/FinalProject/")
-data <- data.frame(read_csv("SpotifyFeatures.csv"))
-colnames(data)
+setwd("~/Desktop/SpotifyGenre/")
+suppressMessages(data <- data.frame(read_csv("SpotifyFeatures.csv")))
+
 # 1.1 most popular
-mostPopularByArtist <- data #%>% group_by(artist_name) %>% top_n(1, popularity) %>% data.frame() 
-#mostPopularByArtist <- mostPopularByArtist[mostPopularByArtist$popularity > 30, ]
+suppressWarnings(mostPopularByArtist <- data %>% group_by(artist_name) %>% top_n(1, popularity) %>% data.frame()) 
+
 # 1.2 exclude a few 
-mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime|Soundtrack", mostPopularByArtist$genre),]
+mostPopularByArtist <- mostPopularByArtist[!grepl("World|Child|Anime|Soundtrack|Movie|Comedy", mostPopularByArtist$genre),]
+
 # 1.3 merge rap & hip-hop
 mostPopularByArtist$genre[mostPopularByArtist$genre == "Hip-Hop"] <- "Rap"
+
 data2<-mostPopularByArtist %>%
   select(-c(track_id, time_signature, track_name, artist_name, mode, key, popularity))
-
 ```
 
-## 3. Explore Plot, D
+## 3. Explore Plot
 ```{R}
 
 ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
@@ -72,70 +73,274 @@ ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
 
 ```
 
-
-
-## 4. Forward Regression model exploratory
-Subset
-```{r}
-sample_data <- data2[sample(1:nrow(data2), 5000, replace=FALSE),]
-sample_data<-na.omit(sample_data)
-sample_data$genre<-factor(sample_data$genre)
-nrow(sample_data)
-```
-
+#Subset the data for a sample of 5000
 ```{r}
 set.seed(1)
+sample_data <- data2[sample(1:nrow(data2), 10000, replace=FALSE),]
+sample_data<-na.omit(sample_data)
+sample_data$genre<-factor(sample_data$genre)
+```
+
+#Split the data into testing and training sets
+```{r}
+set.seed(1)
+
 ## 75% of the sample size
 smp_size <- floor(0.75 * nrow(sample_data))
-## set the seed to make your partition reproducible
+
 train_ind <- sample(seq_len(nrow(sample_data)), size = smp_size)
 train <- sample_data[train_ind, ]
 test <- sample_data[-train_ind, ]
-#forward regression
-regfit.fwd <- regsubsets(genre~ ., data=train, nvmax=4, force.in=NULL,
-                         method = "forward")
-summary(regfit.fwd)
 ```
 
 
 
-### 4.1 Random Forest Classifier 
+## Random Forest Classifier 
 ```{r}
-sd.rf<-randomForest(genre~., data=train, importance=TRUE)
-importance(sd.rf, type=1)
-importance(sd.rf, type=2)
+suppressMessages(suppressWarnings(library(randomForest)))
+
+sd.rf<-randomForest(genre~., data=train, mtry=10, importance=TRUE)
+importance(sd.rf, type = 1)
+```
+The mean decrease in accuracy listed above is an indicator of the global variable importance for the Random Forest Classifier set for the model. Based on the importance output, we see that the variables that stand out as being the most important for classification accurate are speechiness, instrumentalness, danceability, and acousticness whereas liveness stands out as being the least important. Based on this we will estimate a model excluding liveness and comparing the test classification accuracy. 
+
+
+#Classification accuracy for the Random Forest Classifier of long model
+```{r}
+rf_pred<-predict(sd.rf, newdata = test)
+long_acc<-mean(rf_pred==test$genre)*100
+
+paste("The test classification accuracy for the model including the variable liveness is ", long_acc ,"%")
+```
+
+#Classification accuracy for the Random Forest Classifier of short model
+```{r}
+sd.rf<-randomForest(genre~. -liveness, data=train, mtry=9, importance=TRUE)
+rf_pred<-predict(sd.rf, newdata = test)
+short_acc<-mean(rf_pred==test$genre)*100
+
+paste("The test classification accuracy for the model excluding the variable liveness is ", short_acc ,"%")
+```
+As we can see, the classification accuracy for the short model excluding the variable liveness is slightly better than that of the model including liveness. 
+
+#Loop to optimize the number of terminal nodes used in the classifier for the four most important variables based on the intial classifier
+```{r}
+rf_acc<-list()
+ntrees<-list()
+rf_models<-list()
+
+for (i in seq(20:50)) {
+  ntrees[[i]]<-i
+  rf_models[[i]]<-sd.rf<-randomForest(genre~. -liveness, data=train, nodesize=i, importance=TRUE)
+  rf_pred<-predict(rf_models[[i]], newdata = test)
+  rf_acc[[i]]<-mean(rf_pred==test$genre)*100
+}
+
+```
+
+
+
+```{r}
+data_frame(Accuracy = unlist(rf_acc)) %>%
+  mutate(TerminalNodes = row_number()) %>%
+  ggplot(aes(TerminalNodes, Accuracy)) + 
+  geom_col(aes(fill = TerminalNodes == which.max(Accuracy)))+
+  scale_color_continuous(breaks = 1:length(rf_acc)) +
+  guides(fill=FALSE)
 ```
 
 
 ```{r}
+best.tree<-which(unlist(rf_acc)==max(unlist(rf_acc)))
+best.acc<-rf_acc[best.tree]
+
+paste("The number of terminal nodes with the highest classification accuracy rate is ", best.tree ," and the rate is ", best.acc, "%")
 ```
 
-## 5. kNN, M
+Loop to optimize the number of variables selected at each node split
+```{r}
+mtry_acc<-list()
+mtrys<-list()
+rf_models<-list()
 
-## 6. Known Model 2, M
+for (i in 2:9) {
+  mtrys[[i]]<-i
+  rf_models[[i]]<-sd.rf<-randomForest(genre~. -liveness, data=train, mtry=i, nodesize=14, importance=TRUE)
+  rf_pred<-predict(rf_models[[i]], newdata = test)
+  mtry_acc[[i]]<-mean(rf_pred==test$genre)*100
+}
+```
 
-## 7. New Model KSVM, M 
+
+```{r}
+best.mtry<-which(unlist(mtry_acc)==max(unlist(mtry_acc)))
+best.mtryacc<-rf_acc[best.mtry]
+
+paste("The number of trees with the highest classification accuracy rate is ", best.mtry ," and the rate is ", best.mtryacc, "%")
+```
+
+After optimization of both the number of terminal nodes and the number of variables selected at each node split, we observe a classification accuracy around 34% for the Random Forest model.
+
+## Decision Tree
+```{r}
+set.seed(1)
+suppressMessages(suppressWarnings(library(tree)))
+genre_tree<-tree(genre~. -liveness, mindev=0.001, data=train)
+
+summary(genre_tree)
+```
+
+#Classification accuracy for the predictions based on the initial decision tree model
+```{r}
+tree_pred<-predict(genre_tree, test, type="class")
+
+mean(tree_pred == test$genre)*100
+```
+The classification accuracy for the initial decision tree model is recorded as 26.96%. 
+
+#Loop to optimize the pruning of the decision tree to determine optimal number of terminal nodes
+```{r}
+dt_acc<-list()
+size<-list()
+dt_models<-list()
+
+for (i in 2:53) {
+  size[[i]]<-i
+  dt_models[[i]]<-prune.misclass(genre_tree, best=i)
+  dt_pred<-predict(dt_models[[i]], test, type="class")
+  dt_acc[[i]]<-mean(dt_pred==test$genre)*100
+}
+```
+
+```{r}
+data_frame(Accuracy = unlist(dt_acc)) %>%
+  mutate(Size = row_number()+1) %>%
+  ggplot(aes(Size, Accuracy)) + 
+  geom_col(aes(fill = Size == max(which.max(Accuracy))))+
+  scale_color_continuous(breaks = 1:length(dt_acc)) +
+  guides(fill=FALSE)
+```
+
+```{r}
+best.size<-min(which(unlist(dt_acc)==max(unlist(dt_acc))))
+best.acc<-dt_acc[best.size]
+
+paste("The number of terminal nodes with the highest classification accuracy rate is ", best.size ," and the rate is ", best.acc, "%")
+```
+
+Based on the optimization loop, the decision tree with the highest classification accuracy rate has 41 terminal nodes for each tree and has a classification error accuracy rate of 27.76%
+
+## 5. kNN
+
+#Set up for K Nearest Neighbors model
+```{r}
+train_X2 = cbind(train$acousticness, train$danceability, train$speechiness, train$instrumentalness, train$duration_ms, train$energy, train$loudness, train$tempo, train$valence)
+test_X2 = cbind(test$acousticness, test$danceability, test$speechiness, test$instrumentalness, test$duration_ms, test$energy, test$loudness, test$tempo, test$valence)
+train_Y2 = cbind(train$genre)
+test_Y2 = cbind(test$genre)
+```
+
+
+#Loop to optimize K-value based on classification accuracy
+```{r}
+set.seed(1)
+suppressMessages(suppressWarnings(library(class)))
+
+knn_acc<-list()
+k_values<-list()
+knn_models<-list()
+
+for (i in 1:300) {
+  k_values[[i]]<-i
+  knn_models[[i]]<-knn(train_X2, test_X2, train_Y2, k=i)
+  knn_acc[[i]]<-mean(test_Y2==knn_models[[i]])*100
+}
+
+data_frame(Accuracy = unlist(knn_acc)) %>%
+  mutate(K_Value = row_number()) %>%
+  ggplot(aes(K_Value, Accuracy)) +
+  geom_col(aes(fill = K_Value == which.max(Accuracy))) +
+  scale_color_continuous(breaks = 1:length(knn_acc)) +
+  guides(fill=FALSE)
+```
+
+```{r}
+best.k<-min(which(unlist(knn_acc)==max(unlist(knn_acc))))
+best.k.acc<-knn_acc[best.k]
+
+paste("The k-value with the highest classification accuracy rate is ", best.k ," and the rate is ", best.k.acc, "%")
+```
+
+
+## 7. New Model KSVM
 ```{R}
+#Maybe remove a few features more 
 trainVar <- c("genre","acousticness",
                "danceability","duration_ms","energy",
                "instrumentalness","liveness",
                "loudness","speechiness",
                "tempo","valence")
-
 trainSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 20000, replace=FALSE),]
-tstSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 2000, replace=FALSE), ]
-fit <- ksvm(genre ~ ., data = trainSample[,trainVar])
-vote <- predict(fit, tstSample[,trainVar], type="votes")
+tstSample <- mostPopularByArtist[sample(1:nrow(mostPopularByArtist), 1000, replace=FALSE), ]
+```
 
+```{R}
+fit <- ksvm(genre ~ ., data = trainSample[,trainVar])
+# geting the votes of genres for a specific song 
+vote <- predict(fit, tstSample[,trainVar], type="votes")
+# converting votes into predictKSVM, result table to be combined 
 predictKSVM <- data.table()
+# genres' Names to be used
 genreNames <- lev(fit)
+# for each song, selecting most voted 3 genre as predicteKSVM
 for(i in 1:nrow(tstSample)){
   topVotes<- sort(vote[,i], index.return=TRUE, decreasing=TRUE)$ix[1:3]
   topGenre<- genreNames[topVotes]
   predictKSVM<- rbind(predictKSVM, t(topGenre), fill=TRUE) 
 }
-colnames(predictKSVM)[1:3] <- c("Genre 1", "Genre 2", "Genre 3")
+# Changes name of columns
+colnames(predictKSVM)[1:3] <- c("Genre A", "Genre B", "Genre C")
+# Merge result with test sample
 resultKSVM <- cbind(predictKSVM, tstSample)
+# Calulate the score of model.
 scoreKSVM <- modelScore(predictKSVM, data.table(tstSample[,1]))
+scoreKSVM
+```
+The score was generate as percentage of top 3 predicted Genre include the actual genre. The overall accurate rate is around 60%.
+
+# Plotting of result
+Plotting the confusion matrix by its' most distinct prediction(Genre 1) vs Actual. Some of the genres were easy to be predicted, like classic, Rap, and electronic because of some distinct features. While genres like pop doesn't have a clear definition of the music as they were usually a combinition of popular singers. 
+```{R}
+prettyConfused<-function(Actual,Predict,colors=c("white","red4","dodgerblue3"),text.scl=5){
+  actual = as.data.frame(table(Actual))
+  names(actual) = c("Actual","ActualFreq")
+  #build confusion matrix
+  confusion = as.data.frame(table(Actual, Predict))
+  names(confusion) = c("Actual","Predicted","Freq")
+  #calculate percentage of test cases based on actual frequency
+  confusion = merge(confusion, actual, by=c('Actual','Actual'))
+  confusion$Percent = confusion$Freq/confusion$ActualFreq*100
+  confusion$ColorScale<-confusion$Percent*-1
+  confusion[which(confusion$Actual==confusion$Predicted),]$ColorScale<-confusion[which(confusion$Actual==confusion$Predicted),]$ColorScale*-1
+  confusion$Label<-paste(round(confusion$Percent,0),"%, n=",confusion$Freq,sep="")
+  tile <- ggplot() +
+    geom_tile(aes(x=Actual, y=Predicted, fill=ColorScale),data=confusion, color="black",size=0.1) +
+    labs(x="Actual",y="Predicted") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  tile = tile +
+        geom_text(aes(x=Actual,y=Predicted, label=Label),data=confusion, size=text.scl, colour="black") +
+        scale_fill_gradient2(low=colors[2],high=colors[3],mid=colors[1],midpoint = 0,guide='none')
+}
+
+actual <- as.factor(t(resultKSVM[,4]))
+predicted <- as.factor(t(resultKSVM[,1]))
+predicted <- factor(predicted, levels=levels(actual))
+mtx <- prettyConfused(Actual = actual, Predict = predicted, text.scl=1)
+mtx
 ```
 
+### Summary
+With this dataset of limited features, some of the genres could be roughly predicted, while other can't. Usually definitions of music genres are blurr and objective, genres for a song is not sigular and unique. sometimes the second and third order prediction matches genre in the dataset. 
+The features might not be good enough for a detailed and accurate genre predicting, Difference between a Rap and R&B varies by generation, supplimental details from the song itself maybe lyrics plays a role in a classification process by people. 
+### Existing problems
+1. The "Actual" Genres were tags scraped from the artist, while a artist produces a varity kinds of songs, the genre tags does not necessarily reflect the real feature of a specific song. So the train samples itself was biased. 
