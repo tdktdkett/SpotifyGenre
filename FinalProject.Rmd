@@ -22,8 +22,9 @@ suppressMessages(library(leaps))
 
 
 ### 1. Score Functions
-``` {R} 
-modelScore <- function(result, ref){ #result n x 3, ref n x 1
+```{R} 
+#result n x 3, ref n x 1
+modelScore <- function(result, ref){ 
   generalScore <- 0
   for(i in 1:nrow(ref)) {
     if (result[i,1] == ref[i,]){
@@ -97,6 +98,7 @@ test <- sample_data[-train_ind, ]
 
 ## 4.1 Random Forest Classifier 
 ```{r}
+set.seed(1)
 suppressMessages(suppressWarnings(library(randomForest)))
 
 sd.rf<-randomForest(genre~., data=train, mtry=10, importance=TRUE)
@@ -115,22 +117,25 @@ paste("The test classification accuracy for the model including the variable liv
 
 # Classification accuracy for the Random Forest Classifier of short model
 ```{r}
+set.seed(1)
 sd.rf<-randomForest(genre~. -liveness, data=train, mtry=9, importance=TRUE)
 rf_pred<-predict(sd.rf, newdata = test)
 short_acc<-mean(rf_pred==test$genre)*100
 
 paste("The test classification accuracy for the model excluding the variable liveness is ", short_acc ,"%")
 ```
-As we can see, the classification accuracy for the short model excluding the variable liveness is slightly better than that of the model including liveness. 
+As we can see, the classification accuracy for the short model excluding the variable liveness performs slightly better than that of the model including liveness. 
 
 # 4.2 Loop to optimize the number of terminal nodes used in the classifier for the four most important variables based on the intial classifier
 ```{r}
+set.seed(1)
 rf_acc<-list()
 ntrees<-list()
 rf_models<-list()
 
-for (i in seq(20:50)) {
+for (i in 20:50) {
   ntrees[[i]]<-i
+  print(i)
   rf_models[[i]]<-sd.rf<-randomForest(genre~. -liveness, data=train, nodesize=i, importance=TRUE)
   rf_pred<-predict(rf_models[[i]], newdata = test)
   rf_acc[[i]]<-mean(rf_pred==test$genre)*100
@@ -141,31 +146,33 @@ for (i in seq(20:50)) {
 
 # 4.3 Results of optimization of number of terminal nodes
 ```{r}
-data_frame(Accuracy = unlist(rf_acc)) %>%
-  mutate(TerminalNodes = row_number()) %>%
-  ggplot(aes(TerminalNodes, Accuracy)) + 
-  geom_col(aes(fill = TerminalNodes == which.max(Accuracy)))+
+data_frame(ClassAccuracy = unlist(rf_acc), TerminalNodes=unlist(ntrees)) %>%
+  #mutate(TerminalNodes = row_number()) %>%
+  ggplot(aes(TerminalNodes, ClassAccuracy)) + 
+  geom_col(aes(fill = TerminalNodes == which.max(ClassAccuracy)+20))+
   scale_color_continuous(breaks = 1:length(rf_acc)) +
+  ggtitle("Classification Accuracy for number of terminal nodes in Random Forest")+
   guides(fill=FALSE)
 ```
 
 # Conclusion of optimization of terminal nodes
 ```{r}
 best.tree<-which(unlist(rf_acc)==max(unlist(rf_acc)))
-best.acc<-rf_acc[best.tree]
+best.acc<-rf_acc[best.tree+20]
 
-paste("The number of terminal nodes with the highest classification accuracy rate is ", best.tree ," and the rate is ", best.acc, "%")
+paste("The number of terminal nodes with the highest classification accuracy rate is ", best.tree+20 ," and the rate is ", best.acc, "%")
 ```
 
 # 4.4 Loop to optimize the number of variables selected at each node split
 ```{r}
+set.seed(1)
 mtry_acc<-list()
 mtrys<-list()
 rf_models<-list()
 
 for (i in 2:9) {
   mtrys[[i]]<-i
-  rf_models[[i]]<-sd.rf<-randomForest(genre~. -liveness, data=train, mtry=i, nodesize=14, importance=TRUE)
+  rf_models[[i]]<-sd.rf<-randomForest(genre~. -liveness, data=train, mtry=i, nodesize=24, importance=TRUE)
   rf_pred<-predict(rf_models[[i]], newdata = test)
   mtry_acc[[i]]<-mean(rf_pred==test$genre)*100
 }
@@ -174,9 +181,9 @@ for (i in 2:9) {
 # Conclusion of optimization of node splits
 ```{r}
 best.mtry<-which(unlist(mtry_acc)==max(unlist(mtry_acc)))
-best.mtryacc<-rf_acc[best.mtry]
+best.mtryacc<-mtry_acc[best.mtry+1]
 
-paste("The number of trees with the highest classification accuracy rate is ", best.mtry ," and the rate is ", best.mtryacc, "%")
+paste("The number of trees with the highest classification accuracy rate is ", best.mtry+1 ," and the rate is ", best.mtryacc, "%")
 ```
 # 4.5 Conclusion for Random Forest
 After optimization of both the number of terminal nodes and the number of variables selected at each node split, we observe a classification accuracy around 34% for the Random Forest model.
@@ -200,6 +207,7 @@ The classification accuracy for the initial decision tree model is recorded as 2
 
 # 5.2 Loop to optimize the pruning of the decision tree to determine optimal number of terminal nodes
 ```{r}
+set.seed(1)
 dt_acc<-list()
 size<-list()
 dt_models<-list()
@@ -219,6 +227,7 @@ data_frame(Accuracy = unlist(dt_acc)) %>%
   ggplot(aes(Size, Accuracy)) + 
   geom_col(aes(fill = Size == max(which.max(Accuracy))))+
   scale_color_continuous(breaks = 1:length(dt_acc)) +
+  ggtitle("Classification Accuracy for number of Terminal Nodes in Decision Tree")+
   guides(fill=FALSE)
 ```
 
@@ -230,7 +239,7 @@ paste("The number of terminal nodes with the highest classification accuracy rat
 ```
 
 # 5.4 Conclusion of Decision tree
-Based on the optimization loop, the decision tree with the highest classification accuracy rate has 41 terminal nodes for each tree and has a classification error accuracy rate of 27.76%
+Based on the optimization loop, the decision tree with the highest classification accuracy rate has 44 terminal nodes for each tree and has a classification error accuracy rate of 28%
 
 ## 6.1 kNN
 
@@ -263,6 +272,7 @@ data_frame(Accuracy = unlist(knn_acc)) %>%
   ggplot(aes(K_Value, Accuracy)) +
   geom_col(aes(fill = K_Value == which.max(Accuracy))) +
   scale_color_continuous(breaks = 1:length(knn_acc)) +
+  ggtitle("Classification Accuracy of K-Value")+
   guides(fill=FALSE)
 ```
 
@@ -273,11 +283,12 @@ best.k.acc<-knn_acc[best.k]
 
 paste("The k-value with the highest classification accuracy rate is ", best.k ," and the rate is ", best.k.acc, "%")
 ```
-The k Nearest Neighbors classifier does not seem to perform well in classifying the genre based on our dataset.
+The k Nearest Neighbors classifier does not seem to perform well in classifying the genre based on our dataset with a classification accuract rate below 15%.
 
 ## 7.1 New Model KSVM
 ```{R}
 #Maybe remove a few features more 
+set.seed(1)
 trainVar <- c("genre","acousticness",
                "danceability","duration_ms","energy",
                "instrumentalness","liveness",
@@ -309,7 +320,7 @@ resultKSVM <- cbind(predictKSVM, tstSample)
 scoreKSVM <- modelScore(predictKSVM, data.table(tstSample[,1]))
 scoreKSVM
 ```
-The score was generate as percentage of top 3 predicted Genre include the actual genre. The overall accurate rate is around 60%.
+The score was generate as percentage of top 3 predicted Genre include the actual genre. The overall accuracy rate is around 60%.
 
 # 7.2 Plotting of result
 Plotting the confusion matrix by its' most distinct prediction(Genre 1) vs Actual. Some of the genres were easy to be predicted, like classic, Rap, and electronic because of some distinct features. While genres like pop doesn't have a clear definition of the music as they were usually a combinition of popular singers. 
@@ -343,7 +354,8 @@ mtx
 ```
 
 ### 8.1 Summary
-With this dataset of limited features, some of the genres could be roughly predicted, while other can't. Usually definitions of music genres are blurr and objective, genres for a song is not sigular and unique. sometimes the second and third order prediction matches genre in the dataset. 
-The features might not be good enough for a detailed and accurate genre predicting, Difference between a Rap and R&B varies by generation, supplimental details from the song itself maybe lyrics plays a role in a classification process by people. 
+With this dataset of limited features, some of the genres could be roughly predicted, while other can't. Usually definitions of music genres are blurr and objective, genres for a song is not sigular and unique. sometimes the second and third order prediction matches genre in the dataset.   
+The features might not be good enough for a detailed and accurate genre predicting, Difference between a Rap and R&B varies by generation, supplimental details from the song itself maybe lyrics plays a role in a classification process by people.  
+
 ### 8.2 Existing problems
-1. The "Actual" Genres were tags scraped from the artist, while a artist produces a varity kinds of songs, the genre tags does not necessarily reflect the real feature of a specific song. So the train samples itself was biased. 
+The "Actual" Genres were tags scraped from the artist, while a artist produces a varity kinds of songs, the genre tags does not necessarily reflect the real feature of a specific song. So the train samples itself was biased. 
