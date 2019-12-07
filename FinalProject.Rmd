@@ -44,7 +44,7 @@ modelScore <- function(result, ref){
 
 ## 2. Data Cleaning
 ```{R warning = F,message= F}
-setwd("~/Desktop/SpotifyGenre/")
+setwd("D:/GDrive/MachineLearning/Project Spotify Genre/ultimate-spotify-tracks-db")
 suppressMessages(data <- data.frame(read_csv("SpotifyFeatures.csv")))
 
 # 1.1 most popular
@@ -61,15 +61,15 @@ data2<-mostPopularByArtist %>%
 ```
 
 ## 3. Explore Plot
-```{R}
+The following Plots show the distributions of different song genres on features. "Blues" tends to be low in loudness and "Classic" is significantly different in instrumentalness. Music tracks have a variety of distribution for those features, from which we could classify and predict their genres. 
 
+```{R}
 ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=energy, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=tempo, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=speechiness, colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=log(instrumentalness), colour=genre)) + geom_density()
 ggplot(mostPopularByArtist, aes(x=acousticness, colour=genre)) + geom_density()
-ggplot(mostPopularByArtist, aes(x=loudness, colour=genre)) + geom_density()
 #ggplot(mostPopularByArtist[mostPopularByArtist$genre %in% c("Pop","Movie","Classical"),], aes(x=loudness, colour=genre)) + geom_density()
 
 ```
